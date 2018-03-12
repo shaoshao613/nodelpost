@@ -8,6 +8,8 @@ the project is to re-build the weibo / twitter platform with a delete forbirdden
 Coding based on 
 https://github.com/CityOfZion/neo-python/
 
+### Demo(http://www.sotapit.com/nodelpost)
+
 
 Here is some api for this system
 
