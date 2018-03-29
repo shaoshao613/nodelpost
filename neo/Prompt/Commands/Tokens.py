@@ -1,5 +1,5 @@
-from neo.Prompt.Commands.Invoke import InvokeContract, InvokeWithTokenVerificationScript
-from neo.Prompt.Utils import get_asset_id, get_asset_attachments
+from neo.Prompt.Commands.Invoke import InvokeContract, InvokeWithTokenVerificationScript, TestInvokeContract
+from neo.Prompt.Utils import get_asset_id, get_asset_attachments, parse_param
 from neocore.Fixed8 import Fixed8
 from prompt_toolkit import prompt
 from decimal import Decimal
@@ -57,6 +57,34 @@ def token_send_from(wallet, args, prompt_passwd=True):
                 return InvokeContract(wallet, tx, fee)
 
     print("Requested transfer from is greater than allowance")
+
+    return False
+
+
+
+def token_send_blog(wallet, args):
+    if len(args) != 4:
+        print("please provide a token symbol, from address, to address, and amount sb")
+        return False
+    contract = args[0]
+    send_from = args[1]
+    send_to = args[2]
+    amount = 0
+
+    # allowance = token_get_allowance(wallet, args[:-1], verbose=False)
+
+    if True:
+
+        invoke_args = [contract, 'output',
+                       [parse_param(send_from, wallet), parse_param(send_to, wallet), parse_param(amount)]]
+        print(invoke_args);
+        tx, fee, results, num_ops = TestInvokeContract(wallet, invoke_args, None, True,send_from)
+
+        if tx is not None and results is not None and len(results) > 0:
+
+            if results[0].GetBigInteger() == 1:
+
+                return InvokeContract(wallet, tx, fee)
 
     return False
 

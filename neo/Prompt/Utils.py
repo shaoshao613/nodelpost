@@ -58,6 +58,21 @@ def get_asset_id(wallet, asset_str):
     return assetId
 
 
+def get_token(wallet, asset_str):
+    for token in wallet.GetTokens().values():
+        if asset_str == token.symbol:
+            return token
+        elif asset_str == token.ScriptHash.ToString():
+            return token
+    if asset_str.lower() == 'neo':
+        return Blockchain.Default().GetAssetState(Blockchain.Default().SystemShare().Hash.ToBytes())
+    elif asset_str.lower() == 'gas':
+        return Blockchain.Default().GetAssetState(Blockchain.Default().SystemCoin().Hash.ToBytes())
+    elif Blockchain.Default().GetAssetState(asset_str):
+        return Blockchain.Default().GetAssetState(asset_str)
+
+
+
 def get_asset_amount(amount, assetId):
 
     f8amount = Fixed8.TryParse(amount)

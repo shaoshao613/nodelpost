@@ -385,12 +385,13 @@ class Wallet(object):
         """
         ret = []
         for coin in self.GetCoins():
+
+            # print("coin %s %s %s" % (coin.ToJson(), coin.State, from_addr))
             if coin.State & CoinState.Confirmed > 0 and \
                     coin.State & CoinState.Spent == 0 and \
                     coin.State & CoinState.Locked == 0 and \
                     coin.State & CoinState.Frozen == 0 and \
                     coin.State & CoinState.WatchOnly == watch_only_val:
-
                 do_exclude = False
                 if self._vin_exclude:
                     for to_exclude in self._vin_exclude:
@@ -1167,7 +1168,7 @@ class Wallet(object):
 
         return True
 
-    def Sign(self, context):
+    def Sign(self, context, key=None):
         """
         Sign the verifiable items ( Transaction, Block, etc ) in the context with the Keypairs in this wallet.
 
@@ -1184,19 +1185,15 @@ class Wallet(object):
             contract = self.GetContract(hash)
             if contract is None:
                 continue
-
-            key = self.GetKeyByScriptHash(hash)
-
             if key is None:
-                continue
+                key = self.GetKeyByScriptHash(hash)
 
-            signature = Helper.Sign(context.Verifiable, key)
-
+            signature = Helper.Sign(context.Verifiable,keypair=key)
             res = context.AddSignature(contract, key.PublicKey, signature)
-
             success |= res
 
         return success
+
 
     def GetSyncedBalances(self):
         """

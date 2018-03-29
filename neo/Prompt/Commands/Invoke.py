@@ -4,7 +4,6 @@ from neo.VM.InteropService import InteropInterface
 from neo.Network.NodeLeader import NodeLeader
 from neo.Prompt.Utils import parse_param, get_asset_attachments
 
-
 from neo.Implementations.Blockchains.LevelDB.DBCollection import DBCollection
 from neo.Implementations.Blockchains.LevelDB.DBPrefix import DBPrefix
 from neo.Implementations.Blockchains.LevelDB.CachedScriptTable import CachedScriptTable
@@ -32,7 +31,7 @@ from neo.Core.Helper import Helper
 from neo.Core.Blockchain import Blockchain
 from neo.EventHub import events
 from logzero import logger
-
+from neocore.KeyPair import KeyPair
 from neo.VM.OpCode import *
 import json
 
@@ -40,10 +39,9 @@ DEFAULT_MIN_FEE = Fixed8.FromDecimal(.0001)
 
 
 def InvokeContract(wallet, tx, fee=Fixed8.Zero()):
-
     wallet_tx = wallet.MakeTransaction(tx=tx, fee=fee, use_standard=True)
 
-#    pdb.set_trace()
+    #    pdb.set_trace()
 
     if wallet_tx:
 
@@ -57,10 +55,89 @@ def InvokeContract(wallet, tx, fee=Fixed8.Zero()):
 
             relayed = False
 
-#            print("SENDING TX: %s " % json.dumps(wallet_tx.ToJson(), indent=4))
+            #            print("SENDING TX: %s " % json.dumps(wallet_tx.ToJson(), indent=4))
 
             relayed = NodeLeader.Instance().Relay(wallet_tx)
+            print("Tx: %s " % wallet_tx.ToJson())
+            if relayed:
+                print("Relayed Tx: %s " % wallet_tx.Hash.ToString())
 
+                wallet.SaveTransaction(wallet_tx)
+
+                return wallet_tx
+            else:
+                print("Could not relay tx %s " % wallet_tx.Hash.ToString())
+        else:
+
+            print("Incomplete signature")
+
+    else:
+        print("Insufficient funds")
+
+    return False
+
+
+def InvokeContract(wallet, tx, fee=Fixed8.Zero()):
+    wallet_tx = wallet.MakeTransaction(tx=tx, fee=fee, use_standard=True)
+
+    #    pdb.set_trace()
+
+    if wallet_tx:
+
+        context = ContractParametersContext(wallet_tx)
+
+        wallet.Sign(context)
+
+        if context.Completed:
+
+            wallet_tx.scripts = context.GetScripts()
+
+            relayed = False
+
+            #            print("SENDING TX: %s " % json.dumps(wallet_tx.ToJson(), indent=4))
+
+            relayed = NodeLeader.Instance().Relay(wallet_tx)
+            print("Tx: %s " % wallet_tx.ToJson())
+            if relayed:
+                print("Relayed Tx: %s " % wallet_tx.Hash.ToString())
+
+                wallet.SaveTransaction(wallet_tx)
+
+                return wallet_tx
+            else:
+                print("Could not relay tx %s " % wallet_tx.Hash.ToString())
+        else:
+
+            print("Incomplete signature")
+
+    else:
+        print("Insufficient funds")
+
+    return False
+
+
+def SendBlog(wallet, tx, fee=Fixed8.Zero(), from_addr=None,privatekey=None):
+    wallet_tx = wallet.MakeTransaction(tx=tx, fee=fee, use_standard=False,from_addr=from_addr)
+    # wallet_tx = tx
+    if wallet_tx:
+        context = ContractParametersContext(wallet_tx)
+        if privatekey!=None:
+            prikey = KeyPair.PrivateKeyFromWIF(privatekey)
+            kp = KeyPair(prikey)
+            wallet.Sign(context,kp)
+        else:
+            wallet.Sign(context)
+
+        if context.Completed:
+
+            wallet_tx.scripts = context.GetScripts()
+
+            relayed = False
+
+            #            print("SENDING TX: %s " % json.dumps(wallet_tx.ToJson(), indent=4))
+
+            relayed = NodeLeader.Instance().Relay(wallet_tx)
+            print("Tx: %s " % wallet_tx.ToJson())
             if relayed:
                 print("Relayed Tx: %s " % wallet_tx.Hash.ToString())
 
@@ -80,7 +157,6 @@ def InvokeContract(wallet, tx, fee=Fixed8.Zero()):
 
 
 def InvokeWithTokenVerificationScript(wallet, tx, token, fee=Fixed8.Zero()):
-
     wallet_tx = wallet.MakeTransaction(tx=tx, fee=fee, use_standard=True)
 
     if wallet_tx:
@@ -113,9 +189,9 @@ def InvokeWithTokenVerificationScript(wallet, tx, token, fee=Fixed8.Zero()):
 
             relayed = False
 
-#            print("full wallet tx: %s " % json.dumps(wallet_tx.ToJson(), indent=4))
-#            toarray = Helper.ToArray(wallet_tx)
-#            print("to arary %s " % toarray)
+            #            print("full wallet tx: %s " % json.dumps(wallet_tx.ToJson(), indent=4))
+            #            toarray = Helper.ToArray(wallet_tx)
+            #            print("to arary %s " % toarray)
 
             relayed = NodeLeader.Instance().Relay(wallet_tx)
 
@@ -139,7 +215,6 @@ def InvokeWithTokenVerificationScript(wallet, tx, token, fee=Fixed8.Zero()):
 
 
 def TestInvokeContract(wallet, args, withdrawal_tx=None, parse_params=True, from_addr=None, min_fee=DEFAULT_MIN_FEE):
-
     BC = GetBlockchain()
 
     contract = BC.GetContract(args[0])
@@ -153,7 +228,7 @@ def TestInvokeContract(wallet, args, withdrawal_tx=None, parse_params=True, from
             verbose = True
             args.remove('verbose')
 
-#
+        #
         params = args[1:] if len(args) > 1 else []
 
         if len(params) > 0 and params[0] == 'describe':
@@ -189,7 +264,6 @@ def TestInvokeContract(wallet, args, withdrawal_tx=None, parse_params=True, from
         outputs = []
 
         if neo_to_attach:
-
             output = TransactionOutput(AssetId=Blockchain.SystemShare().Hash,
                                        Value=neo_to_attach,
                                        script_hash=contract.Code.ScriptHash(),
@@ -197,7 +271,6 @@ def TestInvokeContract(wallet, args, withdrawal_tx=None, parse_params=True, from
             outputs.append(output)
 
         if gas_to_attach:
-
             output = TransactionOutput(AssetId=Blockchain.SystemCoin().Hash,
                                        Value=gas_to_attach,
                                        script_hash=contract.Code.ScriptHash())
@@ -213,8 +286,71 @@ def TestInvokeContract(wallet, args, withdrawal_tx=None, parse_params=True, from
     return None, None, None, None
 
 
-def test_invoke(script, wallet, outputs, withdrawal_tx=None, from_addr=None, min_fee=DEFAULT_MIN_FEE):
+def TestSendBlog(wallet, args, withdrawal_tx=None, parse_params=True, from_addr=None, min_fee=DEFAULT_MIN_FEE):
+    BC = GetBlockchain()
 
+    contract = BC.GetContract(args[0])
+
+    if contract:
+
+        verbose = False
+
+        if 'verbose' in args:
+            descripe_contract(contract)
+            verbose = True
+            args.remove('verbose')
+
+        #
+        params = args[1:] if len(args) > 1 else []
+
+        if len(params) > 0 and params[0] == 'describe':
+            return
+
+        params, neo_to_attach, gas_to_attach = get_asset_attachments(params)
+
+        params.reverse()
+
+        sb = ScriptBuilder()
+
+        for p in params:
+
+            if parse_params:
+                item = parse_param(p, wallet)
+            else:
+                item = p
+
+            if type(item) is list:
+                item.reverse()
+                listlength = len(item)
+                for listitem in item:
+                    sb.push(listitem)
+                sb.push(listlength)
+                sb.Emit(PACK)
+            else:
+                sb.push(item)
+
+        sb.EmitAppCall(contract.Code.ScriptHash().Data)
+
+        out = sb.ToArray()
+
+        outputs = []
+
+        output = TransactionOutput(AssetId=Blockchain.SystemShare().Hash,
+                                   Value=1,
+                                   script_hash=contract.Code.ScriptHash(),
+                                   )
+        outputs.append(output)
+
+        return test_invoke(out, wallet, outputs, withdrawal_tx, min_fee=min_fee)
+
+    else:
+
+        print("Contract %s not found" % args[0])
+
+    return None, None, None, None
+
+
+def test_invoke(script, wallet, outputs, withdrawal_tx=None, from_addr=None, min_fee=DEFAULT_MIN_FEE):
     # print("invoke script %s " % script)
 
     bc = GetBlockchain()
@@ -247,7 +383,8 @@ def test_invoke(script, wallet, outputs, withdrawal_tx=None, from_addr=None, min
 
     if len(outputs) < 1:
         contract = wallet.GetDefaultContract()
-        tx.Attributes = [TransactionAttribute(usage=TransactionAttributeUsage.Script, data=Crypto.ToScriptHash(contract.Script, unhex=False).Data)]
+        tx.Attributes = [TransactionAttribute(usage=TransactionAttributeUsage.Script,
+                                              data=Crypto.ToScriptHash(contract.Script, unhex=False).Data)]
 
     # same as above. we don't want to re-make the transaction if it is a withdrawal tx
     if withdrawal_tx is not None:
@@ -314,13 +451,12 @@ def test_invoke(script, wallet, outputs, withdrawal_tx=None, from_addr=None, min
 
     except Exception as e:
         service.ExecutionCompleted(engine, False, e)
-#        print("COULD NOT EXECUTE %s " % e)
+    #        print("COULD NOT EXECUTE %s " % e)
 
     return None, None, None, None
 
 
 def test_deploy_and_invoke(deploy_script, invoke_args, wallet, min_fee=DEFAULT_MIN_FEE):
-
     bc = GetBlockchain()
 
     sn = bc._db.snapshot()
@@ -353,7 +489,8 @@ def test_deploy_and_invoke(deploy_script, invoke_args, wallet, min_fee=DEFAULT_M
     service = StateMachine(accounts, validators, assets, contracts, storages, None)
 
     contract = wallet.GetDefaultContract()
-    dtx.Attributes = [TransactionAttribute(usage=TransactionAttributeUsage.Script, data=Crypto.ToScriptHash(contract.Script, unhex=False))]
+    dtx.Attributes = [TransactionAttribute(usage=TransactionAttributeUsage.Script,
+                                           data=Crypto.ToScriptHash(contract.Script, unhex=False))]
 
     to_dispatch = []
 
@@ -450,7 +587,7 @@ def test_deploy_and_invoke(deploy_script, invoke_args, wallet, min_fee=DEFAULT_M
         wallet.Sign(context)
         itx.scripts = context.GetScripts()
 
-#            print("tx: %s " % json.dumps(itx.ToJson(), indent=4))
+        #            print("tx: %s " % json.dumps(itx.ToJson(), indent=4))
 
         engine = ApplicationEngine(
             trigger_type=TriggerType.Application,

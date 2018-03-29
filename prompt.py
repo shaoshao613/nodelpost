@@ -34,7 +34,7 @@ from neo.Prompt.Commands.Send import construct_and_send, parse_and_sign
 from neo.contrib.nex.withdraw import RequestWithdrawFrom, PrintHolds, DeleteHolds, WithdrawOne, WithdrawAll, \
     CancelWithdrawalHolds, ShowCompletedHolds, CleanupCompletedHolds
 from neo.Prompt.Commands.Tokens import token_approve_allowance, token_get_allowance, token_send, token_send_from, \
-    token_mint, token_crowdsale_register
+    token_mint, token_crowdsale_register, token_send_blog
 from neo.Prompt.Commands.Wallet import DeleteAddress, ImportWatchAddr, ImportToken, ClaimGas, DeleteToken, AddAlias, \
     ShowUnspentCoins
 from neo.Prompt.Utils import get_arg
@@ -98,6 +98,7 @@ class PromptInterface(object):
                 'wallet alias {addr} {title}',
                 'wallet tkn_send {token symbol} {address_from} {address to} {amount} ',
                 'wallet tkn_send_from {token symbol} {address_from} {address to} {amount}',
+                'wallet tkn_send_blog {token symbol} {address_from} {address to} {amount}',
                 'wallet tkn_approve {token symbol} {address_from} {address to} {amount}',
                 'wallet tkn_allowance {token symbol} {address_from} {address to}',
                 'wallet tkn_mint {token symbol} {mint_to_addr} (--attach-neo={amount}, --attach-gas={amount})',
@@ -153,7 +154,7 @@ class PromptInterface(object):
                                 'config', 'import', 'export', 'open',
                                 'wallet', 'contract', 'asset', 'wif',
                                 'watch_addr', 'contract_addr', 'testinvoke', 'tkn_send',
-                                'tkn_mint', 'tkn_send_from', 'tkn_approve', 'tkn_allowance',
+                                'tkn_mint', 'tkn_send_from','tkn_send_blog', 'tkn_approve', 'tkn_allowance',
                                 'build', 'notifications', ]
 
         if self.Wallet:
@@ -508,6 +509,8 @@ class PromptInterface(object):
             token_send(self.Wallet, arguments[1:])
         elif item == 'tkn_send_from':
             token_send_from(self.Wallet, arguments[1:])
+        elif item == 'tkn_send_blog':
+            token_send_blog(self.Wallet, arguments[1:])
         elif item == 'tkn_approve':
             token_approve_allowance(self.Wallet, arguments[1:])
         elif item == 'tkn_allowance':

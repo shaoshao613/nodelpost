@@ -7,21 +7,36 @@ See also:
 * http://www.jsonrpc.org/specification
 """
 import json
+
+import Crypto
 import base58
 import random
 import binascii
 from json.decoder import JSONDecodeError
 
+import time
 from klein import Klein
 from logzero import logger
+from twisted.internet import task
 
+from neo.SmartContract.Contract import Contract as WalletContract
+from Crypto import Random
+from neo.Core.TX.InvocationTransaction import InvocationTransaction
+from neo.Core.TX.TransactionAttribute import TransactionAttribute, TransactionAttributeUsage
+from neo.Implementations.Wallets.peewee.UserWallet import UserWallet
+from neo.Prompt.Commands.Invoke import InvokeContract, SendBlog
+from neo.Prompt.Utils import lookup_addr_str
 from neo.Settings import settings
-from neo.Core.Blockchain import Blockchain
+from neo.Core.Blockchain import Blockchain, TransactionOutput, GetBlockchain
+from neo.SmartContract.ContractParameterContext import ContractParametersContext
+from neo.Wallets.utils import to_aes_key
 from neo.api.utils import json_response, cors_header
 from neo.Core.State.AccountState import AccountState
-from neo.Core.TX.Transaction import Transaction
+from neo.Core.TX.Transaction import Transaction, ContractTransaction
 from neocore.UInt160 import UInt160
 from neocore.UInt256 import UInt256
+
+from neocore.KeyPair import KeyPair
 from neo.Core.Helper import Helper
 from neo.Network.NodeLeader import NodeLeader
 from neo.Core.State.StorageKey import StorageKey
@@ -29,6 +44,8 @@ from neo.SmartContract.ApplicationEngine import ApplicationEngine
 from neo.SmartContract.ContractParameter import ContractParameter
 from neo.VM.ScriptBuilder import ScriptBuilder
 from neo.VM.VMState import VMStateStr
+from neocore.Cryptography.Crypto import Crypto
+from neocore.Fixed8 import Fixed8
 
 
 class JsonRpcError(Exception):
@@ -72,9 +89,14 @@ class JsonRpcError(Exception):
 class JsonRpcApi(object):
     app = Klein()
     port = None
+    wallet = None
 
     def __init__(self, port):
         self.port = port
+        self.wallet = UserWallet.Open(path="wallet1",
+                                      password=to_aes_key("shaoshao724"))
+        _walletdb_loop = task.LoopingCall(self.wallet.ProcessBlocks)
+        _walletdb_loop.start(1)
 
     #
     # JSON-RPC API Route
@@ -222,7 +244,7 @@ class JsonRpcApi(object):
                 height = Blockchain.Default().Height + 1
             else:
                 raise JsonRpcError(-100, "no enough param")
-            data = self.get_blog_content(height, "",sender)
+            data = self.get_blog_content(height, "", sender)
             return data;
         elif method == "getBlogContent":
             tx_id = UInt256.ParseString(params[0])
@@ -256,13 +278,174 @@ class JsonRpcApi(object):
             else:
                 return None
 
+        elif method == "gettxout":
+            hash = params[0].encode('utf-8')
+            index = params[1]
+            utxo = Blockchain.Default().GetUnspent(hash, index)
+            if utxo:
+                return utxo.ToJson(index)
+            else:
+                return None
+
+        elif method == "createAddress":
+
+            private_key = bytes(Random.get_random_bytes(32))
+            key = KeyPair(priv_key=private_key)
+            self.wallet._keys[key.PublicKeyHash.ToBytes()] = key
+            self.wallet.OnCreateAccount(key)
+            contract = WalletContract.CreateSignatureContract(key.PublicKey)
+            self.wallet.AddContract(contract)
+            if key :
+                result = {'privateKey': key.Export(),'address':contract.Address}
+                return result;
+            else:
+                return None
         elif method == "invoke":
             shash = UInt160.ParseString(params[0])
             contract_parameters = [ContractParameter.FromJson(p) for p in params[1]]
             sb = ScriptBuilder()
             sb.EmitAppCallWithJsonArgs(shash, contract_parameters)
             return self.get_invoke_result(sb.ToArray())
+        # elif method == "sendBlog":
+        #     shash = UInt160.ParseString(params[0])
+        #     contract_parameters = [ContractParameter.FromJson(p) for p in params[1]]
+        #     sb = ScriptBuilder()
+        #     sb.EmitAppCallWithJsonArgs(shash, contract_parameters)
+        #     script = sb.ToArray();
+        #     tx = ContractTransaction()
+        #     tx.inputs = []
+        #     tx.outputs = []
+        #     attribute = TransactionAttribute(240, params[2].encode('utf-8'))
+        #     standard_contract = self.wallet.GetStandardAddress()
+        #     data = standard_contract.Data
+        #     tx.Attributes = [TransactionAttribute(usage=TransactionAttributeUsage.Script,
+        #                                           data=data)]
+        #
+        #     tx.Attributes.append(attribute)
+        #     tx.Version = 1
+        #     tx.scripts = []
+        #     BC = GetBlockchain()
+        #     contract = BC.GetContract(params[0])
+        #     output = TransactionOutput(AssetId=Blockchain.SystemShare().Hash,
+        #                                Value=Fixed8.FromDecimal(float(1)),
+        #                                script_hash=contract.Code.ScriptHash(),
+        #                                )
+        #     tx.outputs.append(output)
+        #     logger.info("output %s" % output.ToJson(0))
+        #     tx.Script = binascii.unhexlify(script)
+        #     print("percentage %s %s" % (self.wallet.WalletHeight, Blockchain.Default().Height))
+        #     scripthash_from = None
+        #     if not self.wallet.IsSynced:
+        #         raise JsonRpcError.invalidRequest("wallet not synced")
+        #     private_key = None
+        #     if len(params) > 3:
+        #         from_address = params[3]
+        #         if from_address is not None:
+        #             scripthash_from = lookup_addr_str(self.wallet, from_address)
+        #     if len(params) > 4:
+        #         private_key = params[4]
+        #     wallet_tx = SendBlog(self.wallet, tx, from_addr=scripthash_from, privatekey=private_key)
+        #     if wallet_tx != False:
+        #         return wallet_tx.ToJson();
+        #     self.wallet.Rebuild()
+        #     raise JsonRpcError.invalidRequest("Field 'no enough asset")
+        elif method == 'postblog':
+            try:
 
+                if len(params) > 3:
+                    from_address = params[3]
+                assetId =Blockchain.SystemShare().Hash
+
+                if len(params) > 4:
+                    private_key = params[4]
+
+                if assetId is None:
+                    print("Asset id not found")
+                    return False
+
+                contract_parameters = [ContractParameter.FromJson(p) for p in params[1]]
+                sb = ScriptBuilder()
+                sb.EmitAppCallWithJsonArgs(UInt160.ParseString(params[0]), contract_parameters)
+                script = sb.ToArray();
+
+                scripthash_from = None
+
+                if from_address is not None:
+                    scripthash_from = lookup_addr_str(self.wallet, from_address)
+
+                # f8amount = Fixed8.TryParse(0, require_positive=True)
+                # if f8amount is None:
+                #     print("invalid amount format")
+                #     return False
+                #
+                # if type(assetId) is UInt256 and f8amount.value % pow(10, 8 - Blockchain.Default().GetAssetState(
+                #         assetId.ToBytes()).Precision) != 0:
+                #     print("incorrect amount precision")
+                #     return False
+                #
+                fee = Fixed8.Zero()
+                #
+                # output = TransactionOutput(AssetId=assetId, Value=f8amount, script_hash=contract.Code.ScriptHash())
+                tx = InvocationTransaction()
+
+                ttx = self.wallet.MakeTransaction(tx=tx,
+                                             change_address=None,
+                                             fee=fee,
+                                             from_addr=scripthash_from)
+
+                if ttx is None:
+                    print("insufficient funds")
+                    return False
+                standard_contract = self.wallet.GetStandardAddress()
+                if scripthash_from is not None:
+                    signer_contract = self.wallet.GetContract(scripthash_from)
+                else:
+                    signer_contract = self.wallet.GetContract(standard_contract)
+
+                if not signer_contract.IsMultiSigContract:
+                    data = scripthash_from.Data
+                    print(data)
+                    tx.Attributes = [TransactionAttribute(usage=TransactionAttributeUsage.Script,
+                                                          data=data),TransactionAttribute(usage=TransactionAttributeUsage.Remark1,
+                                                          data=from_address.encode('utf-8'))]
+
+                # insert any additional user specified tx attributes
+                tx.Attributes.append(TransactionAttribute(240, params[2].encode('utf-8')))
+                tx.Script = binascii.unhexlify(script)
+
+                context = ContractParametersContext(tx, isMultiSig=signer_contract.IsMultiSigContract)
+                if private_key is not None:
+                    prikey = KeyPair.PrivateKeyFromWIF(private_key)
+                    kp = KeyPair(prikey)
+                self.wallet.Sign(context,kp)
+                attributes = [attr.ToJson() for attr in tx.Attributes]
+                print("attributes %s" %attributes)
+                if context.Completed:
+
+                    tx.scripts = context.GetScripts()
+
+                    #            print("will send tx: %s " % json.dumps(tx.ToJson(),indent=4))
+
+                    relayed = NodeLeader.Instance().Relay(tx)
+
+                    if relayed:
+                        self.wallet.SaveTransaction(tx)
+
+                        print("Relayed Tx: %s " % tx.Hash.ToString())
+                        return tx.ToJson()
+                    else:
+
+                        print("Could not relay tx %s " % tx.Hash.ToString())
+
+                else:
+                    print("Transaction initiated, but the signature is incomplete")
+                    print(json.dumps(context.ToJson(), separators=(',', ':')))
+                    return False
+
+            except Exception as e:
+                print("could not send: %s " % e)
+
+            return False
         elif method == "invokefunction":
             contract_parameters = []
             if len(params) > 2:
@@ -302,7 +485,7 @@ class JsonRpcApi(object):
             }
         }
 
-    def get_blog_content(self, height, tag,sender=""):
+    def get_blog_content(self, height, tag, sender=""):
         data = {}
         list = []
         while height > 1:
@@ -314,18 +497,31 @@ class JsonRpcApi(object):
                 hash = Blockchain.Default().GetNextBlockHash(block.Hash)
                 if hash:
                     jsn['nextblockhash'] = '0x%s' % hash.decode('utf-8')
-                if len(jsn['tx']) > 0:
-                    for tx in jsn['tx']:
-                        if len(tx['attributes']) > 0:
-                            for att in tx['attributes']:
-                                if att['usage'] == 240:
-                                    blog = {}
-                                    blog['sender'] = tx['vout'][1]['address']
-                                    blog['type'] = att
-                                    blog['content'] = binascii.a2b_hex(att['data']).decode("utf8")
-                                    blog['time'] = jsn['time']
-                                    if tag in blog['content'] and (sender == "" or blog['sender'] == sender):
-                                        list.append(blog)
+                try:
+                    if len(jsn['tx']) > 0:
+                        for tx in jsn['tx']:
+                            if len(tx['attributes']) > 0:
+                                blog = {}
+                                blog['time'] = jsn['time']
+                                for att in tx['attributes']:
+                                    if att['usage'] == TransactionAttributeUsage.Remark1:
+                                        blog['sender'] = binascii.a2b_hex(att['data']).decode("utf8")
+                                    if att['usage'] == TransactionAttributeUsage.Remark:
+                                        blog['content'] = binascii.a2b_hex(att['data']).decode("utf8")
+                                    if att['usage'] == TransactionAttributeUsage.Script:
+                                        blog['sign'] = att['data']
+                                if 'sign' in blog and 'sender' in blog:
+                                    sign = Helper.AddrStrToScriptHash(blog['sender']).Data
+                                    if sign.hex()!= blog['sign']:
+                                        blog['sender'] = "匿名"
+                                    pass
+                                else:
+                                    blog['sender'] = "匿名"
+                                if tag in blog['content'] and (sender == "" or blog['sender'] == sender):
+                                    list.append(blog)
+
+                except:
+                    raise
             if len(list) > 10:
                 break
             height = height - 1
@@ -360,9 +556,8 @@ class JsonRpcApi(object):
 
         return Helper.ToArray(block).decode('utf-8')
 
-    def get_invoke_result(self, script):
-
-        appengine = ApplicationEngine.Run(script=script)
+    def get_invoke_result(self, script, container=None):
+        appengine = ApplicationEngine.Run(script=script, container=container)
         return {
             "script": script.decode('utf-8'),
             "state": VMStateStr(appengine.State),
